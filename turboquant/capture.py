@@ -178,6 +178,9 @@ class KVCaptureEngine:
                 key[:num_tokens], value[:num_tokens], num_tokens
             )
         else:
+            # Preserve KV token order: older buffered entries must be stored
+            # before the prefix of the new oversized prefill chunk.
+            self.flush()
             n_compress = num_tokens - self.ring.capacity
             self.store.append_chunk(key[:n_compress], value[:n_compress])
             overflow = self.ring.write(
