@@ -14,6 +14,7 @@ spec.loader.exec_module(capture)
 
 class RecordingStore:
     def __init__(self):
+        """Initialize an empty CPU store for single-head, four-dimensional KV pairs."""
         self.num_kv_heads = 1
         self.head_dim = 4
         self.device = torch.device("cpu")
@@ -21,18 +22,25 @@ class RecordingStore:
 
     @property
     def num_tokens(self):
+        """Return the number of recorded KV token pairs."""
         return len(self.seen)
 
     def append_chunk(self, keys, values):
+        """Record each token's first key and value components in arrival order."""
         self.seen.extend((int(k), int(v)) for k, v in
                          zip(keys[:, 0, 0].tolist(), values[:, 0, 0].tolist()))
 
     def reset(self):
+        """Clear all recorded KV token pairs."""
         self.seen.clear()
 
 
 class ChunkedPrefillOrderTests(unittest.TestCase):
     def check_sequence(self, chunks, capacity=8, mix_decode=False):
+        """Check token counts, flushed KV order, and reset for a chunk sequence.
+
+        When mix_decode is true, ingest alternate chunks through the decode path.
+        """
         store = RecordingStore()
         engine = capture.KVCaptureEngine(
             store, ring_capacity=capacity, device=torch.device("cpu"),
@@ -57,11 +65,13 @@ class ChunkedPrefillOrderTests(unittest.TestCase):
         self.assertEqual(engine.total_tokens, 0)
 
     def test_known_regressions(self):
+        """Verify KV order for known prefill overflow and buffer-boundary cases."""
         for chunks in ([12,12], [4,12], [16,16], [2,20,2], [12,4], [6,6,6], [8,8,8], [1]*20):
             with self.subTest(chunks=chunks):
                 self.check_sequence(chunks)
 
     def test_randomized_prefill(self):
+        """Verify seeded random prefill sequences across several ring capacities."""
         rng = random.Random(20261016)
         for _ in range(120):
             cap = rng.choice([2,4,8,16])
@@ -70,6 +80,7 @@ class ChunkedPrefillOrderTests(unittest.TestCase):
                 self.check_sequence(chunks, cap)
 
     def test_mixed_prefill_decode(self):
+        """Verify KV order and counts when prefill and decode chunks alternate."""
         for chunks in ([12,2,20,2], [4,8,12,4], [2,20,2,16], [16,1,16,1]):
             with self.subTest(chunks=chunks):
                 self.check_sequence(chunks, mix_decode=True)
